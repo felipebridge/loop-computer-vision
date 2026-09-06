@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+from collections import Counter
+
 import cv2
 import numpy as np
 
 from traffic_intelligence.schemas.detection import TrackedDetection
 from traffic_intelligence.schemas.metrics import CongestionState
+
+# Display order for the per-class breakdown in the summary panel; anything not listed here
+# (an unexpected class name) is appended afterwards rather than dropped.
+_CLASS_DISPLAY_ORDER = ["car", "bus", "truck", "motorcycle", "bicycle"]
+_CLASS_DISPLAY_LABEL = {
+    "car": "Cars",
+    "bus": "Buses",
+    "truck": "Trucks",
+    "motorcycle": "Motorcycles",
+    "bicycle": "Bicycles",
+}
 
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
 
@@ -35,6 +48,14 @@ _PANEL_MUTED_TEXT = (165, 165, 165)
 _REFERENCE_WIDTH = 1280.0
 _MIN_SCALE = 1.3
 _MAX_SCALE = 4.0
+
+# Below this fraction of the frame's width, a vehicle is small/distant enough that a handful
+# of them packed into one lane near the horizon sit only a few pixels apart -- a full
+# "#id class - N km/h" banner for each one overlaps its neighbors into an unreadable smear.
+# These get a compact "#id"-only label instead: shorter, and drawn as outlined text with no
+# filled background, so even where two labels do overlap it's a couple of thin glyphs on top
+# of each other, not one opaque block hiding several vehicles.
+_COMPACT_LABEL_MAX_WIDTH_RATIO = 0.065
 
 
 def _color_for_class(class_name: str) -> tuple[int, int, int]:
@@ -85,7 +106,7 @@ class FrameAnnotator:
         detections: list[TrackedDetection],
         trails: dict[int, list[tuple[float, float]]],
         speeds: dict[int, float | None],
-        vehicle_count: int,
+        counts_by_class: Counter[str],
         person_count: int,
         traffic_level: CongestionState,
     ) -> np.ndarray:
@@ -98,8 +119,9 @@ class FrameAnnotator:
                 trails.get(detection.track_id, []),
                 speeds.get(detection.track_id),
                 scale,
+                frame.shape[1],
             )
-        self._draw_summary_panel(annotated, vehicle_count, person_count, traffic_level, scale)
+        self._draw_summary_panel(annotated, counts_by_class, person_count, traffic_level, scale)
         return annotated
 
     def _draw_detection(
@@ -109,12 +131,60 @@ class FrameAnnotator:
         trail: list[tuple[float, float]],
         speed_kmh: float | None,
         scale: float,
+        frame_width: int,
     ) -> None:
         color = _color_for_class(detection.class_name)
-        box_thickness = max(2, round(2.4 * scale))
         x1, y1, x2, y2 = (int(v) for v in detection.bbox)
+        is_compact = frame_width > 0 and (x2 - x1) / frame_width < _COMPACT_LABEL_MAX_WIDTH_RATIO
+
+        box_thickness = max(1, round(1.4 * scale)) if is_compact else max(2, round(2.4 * scale))
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, box_thickness)
 
+        if is_compact:
+            self._draw_compact_label(frame, detection, x1, y1, color, scale)
+        else:
+            self._draw_full_label(frame, detection, speed_kmh, x1, y1, color, scale)
+
+        # A packed cluster of small/distant vehicles produces a tangle of full-length trails
+        # that adds more visual noise than signal; a short, thin trail still shows which way
+        # each one is moving without drowning the cluster in overlapping lines.
+        trail_length = 6 if is_compact else self._trail_length
+        recent_trail = trail[-trail_length:]
+        if len(recent_trail) >= 2:
+            points = np.array(recent_trail, dtype=np.int32)
+            cv2.polylines(
+                frame,
+                [points],
+                isClosed=False,
+                color=color,
+                thickness=1 if is_compact else max(2, round(2.2 * scale)),
+                lineType=cv2.LINE_AA,
+            )
+
+    def _draw_compact_label(
+        self,
+        frame: np.ndarray,
+        detection: TrackedDetection,
+        x1: int,
+        y1: int,
+        color: tuple[int, int, int],
+        scale: float,
+    ) -> None:
+        label = f"#{detection.track_id}"
+        font_scale = max(0.32, 0.4 * scale)
+        origin = (x1 + 1, max(12, y1 - 3))
+        _put_label_outlined(frame, label, origin, color, font_scale, thickness=1)
+
+    def _draw_full_label(
+        self,
+        frame: np.ndarray,
+        detection: TrackedDetection,
+        speed_kmh: float | None,
+        x1: int,
+        y1: int,
+        color: tuple[int, int, int],
+        scale: float,
+    ) -> None:
         label = f"#{detection.track_id} {detection.class_name}"
         if detection.class_name != "person" and speed_kmh is not None:
             # Hershey fonts (OpenCV's only built-in option) only cover ASCII, so this stays
@@ -137,29 +207,29 @@ class FrameAnnotator:
         cv2.rectangle(frame, (x1, bg_top), (x1 + text_w + 2 * pad, bg_bottom), color, thickness=-1)
         _put_label(frame, label, (x1 + pad, bg_bottom - pad - baseline), text_color, font_scale, text_thickness)
 
-        recent_trail = trail[-self._trail_length :]
-        if len(recent_trail) >= 2:
-            points = np.array(recent_trail, dtype=np.int32)
-            cv2.polylines(
-                frame,
-                [points],
-                isClosed=False,
-                color=color,
-                thickness=max(2, round(2.2 * scale)),
-                lineType=cv2.LINE_AA,
-            )
-
     def _draw_summary_panel(
         self,
         frame: np.ndarray,
-        vehicle_count: int,
+        counts_by_class: Counter[str],
         person_count: int,
         traffic_level: CongestionState,
         scale: float,
     ) -> None:
         level_color = _CONGESTION_COLORS[traffic_level]
+        vehicle_count = sum(counts_by_class.values())
+
+        # Only list classes actually present this frame (in a fixed order, with any unknown
+        # class appended) -- a dashboard row for "Buses  0" on every single frame is just
+        # clutter on a clip that never has one.
+        present_classes = [c for c in _CLASS_DISPLAY_ORDER if counts_by_class.get(c)]
+        present_classes += [c for c in counts_by_class if c not in _CLASS_DISPLAY_ORDER and counts_by_class[c]]
+        breakdown_rows = [(_CLASS_DISPLAY_LABEL.get(c, c.title()), counts_by_class[c]) for c in present_classes]
+
         margin = round(20 * scale)
-        width, height = round(380 * scale), round(200 * scale)
+        line_gap = round(40 * scale)
+        header_rows = 3  # Vehicles total, People, Traffic level
+        width = round(380 * scale)
+        height = round(88 * scale) + line_gap * (header_rows + len(breakdown_rows))
         x0, y0 = margin, margin
         x1, y1 = x0 + width, y0 + height
 
@@ -172,30 +242,34 @@ class FrameAnnotator:
         cv2.rectangle(frame, (x0, y0), (x0 + accent_width, y1), level_color, thickness=-1)
 
         text_x = x0 + accent_width + round(16 * scale)
-        line_scale = 1.0 * scale
-        line_gap = round(48 * scale)
+        line_scale = 0.9 * scale
         text_thickness = 2 if scale >= 1.6 else 1
-        first_line_y = y0 + round(48 * scale)
+        row_y = y0 + round(44 * scale)
 
         _put_label_outlined(
-            frame, f"Vehicles  {vehicle_count}", (text_x, first_line_y), _PANEL_TEXT, line_scale, text_thickness
+            frame, f"Vehicles  {vehicle_count}", (text_x, row_y), _PANEL_TEXT, line_scale * 1.1, text_thickness
         )
+        for label, count in breakdown_rows:
+            row_y += line_gap
+            _put_label_outlined(
+                frame, f"  {label}  {count}", (text_x, row_y), _PANEL_MUTED_TEXT, line_scale * 0.9, text_thickness
+            )
+
+        row_y += line_gap
         _put_label_outlined(
-            frame,
-            f"People    {person_count}",
-            (text_x, first_line_y + line_gap),
-            _PANEL_TEXT,
-            line_scale,
-            text_thickness,
+            frame, f"People    {person_count}", (text_x, row_y), _PANEL_TEXT, line_scale * 1.1, text_thickness
         )
+
+        row_y += line_gap
         _put_label_outlined(
             frame,
             f"Traffic   {traffic_level.value}",
-            (text_x, first_line_y + 2 * line_gap),
+            (text_x, row_y),
             level_color,
-            line_scale * 1.1,
+            line_scale * 1.2,
             text_thickness,
         )
+
         _put_label_outlined(
             frame,
             "Speed shown per vehicle is a CV estimate",

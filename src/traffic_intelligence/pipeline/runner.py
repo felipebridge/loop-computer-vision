@@ -14,6 +14,7 @@ from traffic_intelligence.analytics.occupant_filter import exclude_vehicle_occup
 from traffic_intelligence.analytics.speed import SpeedEstimator
 from traffic_intelligence.config.settings import PipelineConfig
 from traffic_intelligence.persistence.video_encoder import finalize_video
+from traffic_intelligence.pipeline.hdr_preprocess import resolve_input_video
 from traffic_intelligence.pipeline.video_source import VideoSource
 from traffic_intelligence.schemas.metrics import CongestionState, TrafficMetrics
 from traffic_intelligence.schemas.track import TrackSummary
@@ -55,7 +56,11 @@ class PipelineRunner:
         last_timestamp = 0.0
         frame_diagonal = 0.0
 
-        with VideoSource(input_path, self._config.video.fps_override) as source:
+        decode_path = resolve_input_video(
+            input_path, output_dir / "videos", self._config.video.tone_map_hdr
+        )
+
+        with VideoSource(decode_path, self._config.video.fps_override) as source:
             frame_diagonal = math.hypot(source.frame_width, source.frame_height)
             speed_estimator = (
                 SpeedEstimator(self._config.speed.reference_widths_m, self._config.speed.min_calibration_samples)
@@ -69,6 +74,7 @@ class PipelineRunner:
                 frame_diagonal=frame_diagonal,
                 min_movement_ratio=self._config.tracking.min_movement_ratio,
                 person_class=self._config.detection.person_class,
+                frame_width=source.frame_width,
             )
             camera_motion = CameraMotionEstimator()
 
@@ -85,16 +91,23 @@ class PipelineRunner:
                 )
 
             for frame_index, timestamp, frame in source.frames():
-                camera_motion.update(frame)
                 tracked = self._tracker.track(frame, frame_index, timestamp)
                 tracked = exclude_vehicle_occupants(tracked, self._config.detection.person_class)
+                camera_motion.update(frame, exclude_boxes=[d.bbox for d in tracked])
                 for detection in tracked:
                     accumulator.add(detection, camera_motion.to_reference_frame(detection.centroid))
 
                 person_class = self._config.detection.person_class
                 confirmed = [d for d in tracked if accumulator.is_confirmed(d.track_id)]
-                vehicle_count = sum(1 for d in confirmed if d.class_name != person_class)
-                person_count = sum(1 for d in confirmed if d.class_name == person_class)
+                display_detections = []
+                for d in confirmed:
+                    class_id, class_name = accumulator.dominant_class(d.track_id)
+                    display_detections.append(
+                        d.model_copy(update={"class_id": class_id, "class_name": class_name})
+                    )
+                counts_by_class = Counter(d.class_name for d in display_detections)
+                person_count = counts_by_class.pop(person_class, 0)
+                vehicle_count = sum(counts_by_class.values())
 
                 traffic_level = self._congestion_classifier.update(vehicle_count)
                 self._traffic_level_history.append(traffic_level)
@@ -102,14 +115,14 @@ class PipelineRunner:
                 if video_writer is not None:
                     trails = {d.track_id: accumulator.trail(d.track_id) for d in confirmed}
                     speeds = {d.track_id: accumulator.current_speed_kmh(d.track_id) for d in confirmed}
-                    display_detections = []
-                    for d in confirmed:
-                        class_id, class_name = accumulator.dominant_class(d.track_id)
-                        display_detections.append(
-                            d.model_copy(update={"class_id": class_id, "class_name": class_name})
-                        )
                     annotated_frame = self._annotator.annotate(
-                        frame, display_detections, trails, speeds, vehicle_count, person_count, traffic_level
+                        frame,
+                        display_detections,
+                        trails,
+                        speeds,
+                        counts_by_class,
+                        person_count,
+                        traffic_level,
                     )
                     video_writer.write(annotated_frame)
 

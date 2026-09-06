@@ -54,6 +54,24 @@ wheel can also resolve it, since this is ultimately a packaging issue upstream, 
 Both trackers are Kalman filter + Hungarian assignment, which is easy to get subtly wrong, and
 Ultralytics' implementations are already tested against standard MOT benchmarks.
 
+## HDR/Dolby Vision source video: tone-mapping before decode
+
+`pipeline.hdr_preprocess.resolve_input_video` runs before `VideoSource` opens anything.
+OpenCV/FFmpeg's default decode path treats every video's samples as ordinary gamma-encoded
+(bt709) values; that's correct for standard SDR footage but wrong for an HDR transfer function
+(HLG/`arib-std-b67`, PQ/`smpte2084` -- including a Dolby Vision clip's HLG- or PQ-compatible base
+layer, which is what a non-DV-aware decoder falls back to anyway). Decoded that way, HDR footage
+comes out with muted contrast and clipped highlights, which matters here because it's exactly the
+contrast between a small, distant vehicle and the road behind it that's most at risk. Detected
+once via `ffprobe`'s `color_transfer` field, an HDR source gets re-encoded once (`ffmpeg`:
+linearize, Hable tonemap, re-encode to bt709 SDR) into a cached intermediate that every downstream
+stage reads instead of the original. The same `ffmpeg` re-encode also bakes in the container's
+rotation (a phone's display-matrix metadata), which `ffmpeg` auto-rotates on any filtered
+transcode -- `VideoSource`'s own `CAP_PROP_ORIENTATION_AUTO` (see its docstring) stays in place as
+the fallback for sources that skip this preprocessing (already-SDR video, or no `ffmpeg` on PATH).
+Failure at any point (no `ffprobe`/`ffmpeg`, a failed transcode) falls back to decoding the
+original file, matching pre-existing behavior, rather than aborting the run.
+
 ## Why detection and tracking are one call, not two
 
 An earlier version of this project ran a standalone frame-level detector and a separate
@@ -138,6 +156,18 @@ Reporting that raw value as "max speed" reads as broken, not as a real burst of 
 `max_speed_kmh` is the 90th percentile of a track's segment speeds rather than the literal
 maximum — it keeps a genuine sustained fast segment while dropping a one-frame outlier.
 
+## Why a very small/distant vehicle keeps its box but loses its speed label
+
+`analytics.speed.SpeedEstimator` calibrates one global pixels-per-meter scale from vehicles
+across the whole frame. On a wide avenue that scale is necessarily a compromise between a car
+filling most of the frame in the near lane and one a few pixels wide near the vanishing point --
+applying it to the latter amplifies perspective error to the point the resulting number is closer
+to noise than an estimate. `TrackAccumulator._too_far_for_speed` (`_MIN_BBOX_WIDTH_RATIO_FOR_SPEED`,
+2.5% of frame width) suppresses the speed label, and only the speed label, once a track's bounding
+box drops below that width -- the box, ID, and trail are untouched, and the vehicle is still
+counted; `current_speed_kmh` and `_speed_summary` both return `None` rather than a low-confidence
+number.
+
 ## Excluding parked vehicles: motion compensation, and why it isn't exact
 
 A parked car isn't stationary on screen if the camera is handheld: `analytics.motion_compensation.
@@ -175,6 +205,55 @@ real vehicle motion, so genuinely moving cars get misclassified as background-co
 needs the moving foreground to be a small, clearly-different-motion minority of the tracked
 points to work, which doesn't hold for anything but light, sparse traffic. Don't reintroduce this
 without solving that failure mode first.
+
+### Masking detected boxes out of the background fit
+
+The RANSAC "background" fit above needs the *moving foreground to be a small minority* of the
+tracked points -- the same requirement that sank the reverted per-frame classifier just above,
+and `min_movement_ratio` degrades the same direction under the same condition even though it
+doesn't have that requirement baked in explicitly. On a wide multi-lane avenue filled
+edge-to-edge with traffic (as opposed to a typical street scene with a visible sidewalk,
+buildings, sky), there's very little genuine static background left for `goodFeaturesToTrack` to
+find, so a growing share of the "background" points it does find sit on vehicle bodies instead.
+When that happens, real vehicle motion leaks into the estimated camera transform, the compensated
+position undershoots a vehicle's true displacement, and slow-moving, queued traffic reads as
+"parked" and gets dropped -- on a video like that, most of what's on screen is exactly this kind
+of traffic, so the effect isn't a few missed edge cases, it's the majority of the count. This was
+diagnosed on a dense avenue clip where per-frame YOLO detection alone found ~40 vehicles in a
+single frame but the finalized track count for the whole video was ~20, and independently
+measured on the same clip: a background-only feature match (hand-restricted to a static upper
+strip of the frame -- sky, buildings, treeline, no road) put the camera's true motion over the
+whole ~16s clip at ~29px, while the unmasked `CameraMotionEstimator` reported ~455px (14.6% of
+the frame diagonal) -- 16x too high, and the signature of exactly this contamination.
+
+`CameraMotionEstimator.update` now takes this frame's detected boxes (`exclude_boxes`) and masks
+them out of the `goodFeaturesToTrack` search before fitting the background transform, so the
+search is confined to what's actually static regardless of how much of the frame traffic covers.
+On the same clip this brought the measured drift down to ~66px (2.1%) -- not all the way to the
+theoretical ~29px floor (detection at the resolution used for this measurement misses some boxes,
+and things like swaying branches or shadows aren't masked either), but a real, large improvement.
+
+That fix alone wasn't enough to safely re-enable `tracking.min_movement_ratio`, though. Tried at
+0.035 (comfortably above the ~2% residual noise floor above), it excluded the *entire* far lane
+of this avenue's traffic jam, not just the actually-parked cars -- confirmed by inspecting the
+annotated output frame-by-frame, not just inferred from the numbers. The reason is perspective,
+not compensation error: a distant vehicle covers far fewer *screen* pixels per real meter
+traveled than a near one does, so at the far lane's distance, even genuine forward creep over
+this clip's ~16s produces on-screen displacement barely above the same noise floor a truly
+parked car produces. Displacement alone can't tell those two apart at that distance -- raising
+the threshold to protect distant real movement stops excluding parked cars at all, and lowering
+it to reliably exclude parked cars also excludes distant real movement, because both problems
+live at the same magnitude of pixels. `configs/default.yaml` keeps `min_movement_ratio: 0` (fully
+disabled) for that reason: recall on the far lane -- most of the traffic in a scene like this --
+matters more than excluding a handful of curb-parked cars, and no setting of this one signal
+serves both. A video with a lighter, sparser mix of traffic (more real static background for the
+mask to work with, and no dense far-away jam whose real movement is this hard to distinguish from
+noise) can safely re-enable it.
+
+Reliably excluding specific parked vehicles on footage like this would need a signal that isn't
+fooled by perspective -- most plausibly a *position*-based one (e.g. a hand-marked polygon over
+the visible parking lane/lot, independent of how much any given vehicle appears to move) rather
+than a motion-based one. That's a different, scene-specific mechanism -- not implemented here.
 
 ## Why a driver/passenger isn't counted as a pedestrian
 

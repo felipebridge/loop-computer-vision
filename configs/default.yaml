@@ -1,5 +1,6 @@
 video:
   fps_override: null
+  tone_map_hdr: true
 
 detection:
   model_path: "yolo11l.pt"
@@ -10,9 +11,13 @@ detection:
   iou_threshold: 0.65
   # Raised from 1280 (see settings.py note). Validated against this project's dense-traffic
   # footage: at 1280-1600 the far-lane traffic jam (small, distant vehicles) was almost entirely
-  # missed (single-frame test: 30 vehicle boxes at 1280 vs 43 at 2016 on the same frame); 2016
-  # recovers most of it while keeping CPU inference time bounded (native width is 2754px).
-  imgsz: 2016
+  # missed (single-frame test: 30 vehicle boxes at 1280 vs 43 at 2016 on the same frame). 2016
+  # recovered the most detail but repeatedly ran this machine (14GB RAM, shared with a browser,
+  # an IDE, and this CLI itself) out of memory mid-run at yolo11l's activation-memory footprint;
+  # 1536 is a deliberate compromise -- less far-lane recall than 2016 would give, but enough
+  # headroom on this machine to actually finish a full run instead of getting OOM-killed partway
+  # through. Raise it back to 2016 on a machine with more free RAM (or with less else running).
+  imgsz: 1536
   vehicle_classes: ["car", "bus", "truck", "motorcycle", "bicycle"]
   person_class: "person"
   device: "auto"
@@ -26,7 +31,21 @@ tracking:
   min_visibility_ratio: 0.5
   reid_max_gap_seconds: 1.0
   reid_max_centroid_distance_ratio: 0.06
-  min_movement_ratio: 0.08
+  # Disabled (0.0): this ratio excludes tracks whose (camera-motion-compensated) position
+  # barely moves, meant to filter out curb-parked cars. `CameraMotionEstimator` masking (see
+  # analytics.motion_compensation) fixed the RANSAC contamination that was corrupting this
+  # signal (~15% -> ~2% spurious drift on this footage), but re-enabling it at any threshold
+  # that actually excludes a parked car (tried: 0.035) also excluded the ENTIRE far lane of
+  # this avenue's traffic jam -- confirmed by inspecting the annotated output, not just theory.
+  # The reason is perspective, not compensation: a distant, slow-moving vehicle covers very
+  # few *screen* pixels per real meter it travels, so at the far lane's distance its on-screen
+  # displacement over this clip's ~16s is barely above the noise floor a genuinely parked car
+  # also produces -- the two become indistinguishable from raw displacement alone. Recall on
+  # that far lane (most of the traffic in this scene) matters more than excluding the handful
+  # of curb-parked cars, so this stays off. Excluding specific parked cars reliably would need
+  # a position-based signal (e.g. a marked parking-lane/lot region) instead of a motion-based
+  # one -- see docs/architecture.md.
+  min_movement_ratio: 0.0
 
 congestion:
   density_thresholds:

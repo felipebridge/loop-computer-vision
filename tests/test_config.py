@@ -37,8 +37,12 @@ def test_detection_config_defaults_imgsz():
 
 
 def test_load_default_config_uses_higher_imgsz():
+    # Higher than the class default (640), but capped below the 2016 that gave the best
+    # far-lane recall in testing -- that setting repeatedly ran a memory-constrained machine
+    # out of RAM mid-run (see configs/default.yaml). 1536 is a deliberate reliability/recall
+    # trade-off, not the ceiling of what this pipeline can do on more capable hardware.
     config = load_config("configs/default.yaml")
-    assert config.detection.imgsz == 2016
+    assert config.detection.imgsz == 1536
 
 
 def test_load_config_missing_file_raises():

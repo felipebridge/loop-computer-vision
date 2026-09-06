@@ -25,6 +25,11 @@ class DeviceType(StrEnum):
 
 class VideoConfig(BaseModel):
     fps_override: float | None = Field(default=None, gt=0)
+    # iPhone-style HDR/Dolby Vision clips (HLG or PQ base layer) decode with muted contrast
+    # and clipped highlights if the YUV samples are treated as ordinary gamma-encoded video --
+    # see pipeline.hdr_preprocess. Has no effect (and costs nothing extra) on an already-SDR
+    # source: detection is only enabled for actual HDR transfer functions.
+    tone_map_hdr: bool = True
 
 
 class DetectionConfig(BaseModel):

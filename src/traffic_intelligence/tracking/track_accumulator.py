@@ -21,6 +21,12 @@ _TOP_SPEED_PERCENTILE = 0.9
 # short few-second windows most real vehicles are visible for.
 _LONG_TRACK_SECONDS = 10.0
 _LONG_TRACK_MOVEMENT_MULTIPLIER = 4.0
+# A single global pixels-per-meter scale (see analytics.speed.SpeedEstimator) is calibrated
+# from vehicles across the whole frame, near and far alike -- applying it to a bounding box
+# this small (a vehicle near the vanishing point, on a wide avenue) amplifies perspective
+# error enough that the reported speed is closer to noise than an estimate. Below this width
+# the vehicle keeps its box, ID, and track, it just stops getting a speed label.
+_MIN_BBOX_WIDTH_RATIO_FOR_SPEED = 0.025
 # Segment endpoints are individual raw samples, so one noisy frame corrupts every segment that
 # touches it. Averaging each point with its neighbors first removes that without erasing real
 # motion, which happens over many frames, not one.
@@ -65,6 +71,7 @@ class TrackAccumulator:
         frame_diagonal: float = 0.0,
         min_movement_ratio: float = 0.0,
         person_class: str = "person",
+        frame_width: float = 0.0,
     ) -> None:
         self._min_track_seconds = min_track_seconds
         self._min_visibility_ratio = min_visibility_ratio
@@ -72,6 +79,8 @@ class TrackAccumulator:
         self._frame_diagonal = frame_diagonal
         self._min_movement_ratio = min_movement_ratio
         self._person_class = person_class
+        self._frame_width = frame_width
+        self._last_bbox_width: dict[int, float] = {}
         self._frame_counts: dict[int, int] = defaultdict(int)
         self._class_votes: dict[int, Counter[int]] = defaultdict(Counter)
         self._class_names: dict[int, dict[int, str]] = defaultdict(dict)
@@ -101,6 +110,8 @@ class TrackAccumulator:
         self._class_names[track_id][detection.class_id] = detection.class_name
         self._confidences[track_id].append(detection.confidence)
         self._trails[track_id].append(detection.centroid)
+        x1, _, x2, _ = detection.bbox
+        self._last_bbox_width[track_id] = x2 - x1
         self._position_history[track_id].append(
             (detection.timestamp, resolved_position[0], resolved_position[1])
         )
@@ -132,11 +143,16 @@ class TrackAccumulator:
         class_id, _ = self._class_votes[track_id].most_common(1)[0]
         return class_id, self._class_names[track_id][class_id]
 
+    def _too_far_for_speed(self, track_id: int) -> bool:
+        if self._frame_width <= 0:
+            return False
+        return self._last_bbox_width.get(track_id, 0.0) < _MIN_BBOX_WIDTH_RATIO_FOR_SPEED * self._frame_width
+
     def current_speed_kmh(self, track_id: int) -> float | None:
         """Instantaneous speed for live on-screen display, from the most recent positions
         within a short rolling window. Only as accurate as calibration is so far into the
         video (see SpeedEstimator) -- it typically sharpens as more vehicles are seen."""
-        if self._speed_estimator is None:
+        if self._speed_estimator is None or self._too_far_for_speed(track_id):
             return None
         raw_history = self._position_history.get(track_id)
         if not raw_history or len(raw_history) < 2:
@@ -198,7 +214,7 @@ class TrackAccumulator:
         as a real burst of speed. The percentile keeps a genuine sustained fast segment while
         discarding a one-frame outlier.
         """
-        if self._speed_estimator is None:
+        if self._speed_estimator is None or self._too_far_for_speed(track_id):
             return None, None
 
         history = _smoothed(self._position_history.get(track_id, []))
