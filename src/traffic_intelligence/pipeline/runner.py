@@ -30,8 +30,6 @@ logger = get_logger("pipeline.runner")
 # CongestionClassifier._history, so memory stays flat regardless of video length. 20s
 # comfortably shows the whole trend on a short clip and a meaningful recent window on a long one.
 _SPARKLINE_WINDOW_S = 20.0
-# Length of the frozen end-card outro appended after the last real frame.
-_OUTRO_SECONDS = 3.0
 
 
 @dataclass
@@ -100,7 +98,6 @@ class PipelineRunner:
                     (source.frame_width, source.frame_height),
                 )
 
-            last_frame = None
             for frame_index, timestamp, frame in source.frames():
                 tracked = self._tracker.track(frame, frame_index, timestamp)
                 tracked = exclude_vehicle_occupants(tracked, self._config.detection.person_class)
@@ -139,11 +136,16 @@ class PipelineRunner:
                     )
                     video_writer.write(annotated_frame)
 
-                last_frame = frame
                 last_frame_index = frame_index
                 last_timestamp = timestamp
 
+            if video_writer is not None:
+                video_writer.release()
+
             track_summaries = accumulator.finalize()
+
+        if raw_video_path is not None and annotated_video_path is not None:
+            finalize_video(raw_video_path, annotated_video_path)
 
         track_summaries = stitch_fragmented_tracks(
             track_summaries,
@@ -158,19 +160,6 @@ class PipelineRunner:
             video_duration_s=last_timestamp,
             frames_processed=last_frame_index + 1,
         )
-
-        # Metrics are only final once the whole video's been processed, so the end-card outro
-        # is appended here -- after the writer's last live frame but before it's released --
-        # rather than during the frame loop above, which only ever sees running totals.
-        if video_writer is not None and last_frame is not None:
-            outro_frame = self._annotator.render_summary_card(last_frame, metrics, self._peak_vehicle_count)
-            for _ in range(round(_OUTRO_SECONDS * fps)):
-                video_writer.write(outro_frame)
-        if video_writer is not None:
-            video_writer.release()
-
-        if raw_video_path is not None and annotated_video_path is not None:
-            finalize_video(raw_video_path, annotated_video_path)
 
         logger.info(
             "Pipeline finished: %d vehicles, %d pedestrians, traffic level=%s",

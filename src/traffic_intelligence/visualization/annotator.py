@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 
 from traffic_intelligence.schemas.detection import TrackedDetection
-from traffic_intelligence.schemas.metrics import CongestionState, TrafficMetrics
+from traffic_intelligence.schemas.metrics import CongestionState
 
 # Display order for the per-class breakdown in the summary panel; anything not listed here
 # (an unexpected class name) is appended afterwards rather than dropped.
@@ -89,13 +89,13 @@ def _put_label_outlined(
 ) -> None:
     """Like _put_label, but with a dark halo behind the glyphs -- the panel sits over live
     video, so a light color alone can wash out against a bright patch of frame behind it."""
-    cv2.putText(frame, text, origin, _FONT, font_scale, (0, 0, 0), thickness + 3, cv2.LINE_AA)
+    cv2.putText(frame, text, origin, _FONT, font_scale, (0, 0, 0), thickness + 5, cv2.LINE_AA)
     cv2.putText(frame, text, origin, _FONT, font_scale, color, thickness, cv2.LINE_AA)
 
 
 class FrameAnnotator:
-    """Renders bounding boxes, per-track trails, a live summary panel (counts, traffic level,
-    density sparkline), and an end-of-video summary card."""
+    """Renders bounding boxes, per-track trails, and a live summary panel (counts, traffic
+    level, density sparkline)."""
 
     def __init__(self, trail_length: int = 20) -> None:
         self._trail_length = trail_length
@@ -174,7 +174,7 @@ class FrameAnnotator:
         label = f"#{detection.track_id}"
         font_scale = max(0.32, 0.4 * scale)
         origin = (x1 + 1, max(12, y1 - 3))
-        _put_label_outlined(frame, label, origin, color, font_scale, thickness=1)
+        _put_label_outlined(frame, label, origin, color, font_scale, thickness=max(1, round(1.1 * scale)))
 
     def _draw_full_label(
         self,
@@ -188,7 +188,7 @@ class FrameAnnotator:
         label = f"#{detection.track_id} {detection.class_name}"
 
         font_scale = 0.62 * scale
-        text_thickness = 2 if scale >= 1.6 else 1
+        text_thickness = max(2, min(4, round(1.3 * scale)))
         pad = max(4, round(3.5 * scale))
         (text_w, text_h), baseline = cv2.getTextSize(label, _FONT, font_scale, text_thickness)
         text_color = _text_color_for_background(color)
@@ -226,23 +226,26 @@ class FrameAnnotator:
         margin = round(20 * scale)
         line_gap = round(40 * scale)
         header_rows = 4  # Vehicles total, People, Traffic level, Density label
-        sparkline_height = round(34 * scale)
+        sparkline_height = round(46 * scale)
         width = round(380 * scale)
         height = round(88 * scale) + line_gap * (header_rows + len(breakdown_rows)) + sparkline_height
         x0, y0 = margin, margin
         x1, y1 = x0 + width, y0 + height
 
+        # Near-opaque: at the old 0.88/0.12 blend, a bright patch of video behind the panel
+        # (sky, pale pavement) washed out through the dark background enough to make the
+        # panel read as translucent rather than a solid HUD element.
         overlay = frame.copy()
         cv2.rectangle(overlay, (x0, y0), (x1, y1), _PANEL_BG, thickness=-1)
-        cv2.addWeighted(overlay, 0.88, frame, 0.12, 0, frame)
-        cv2.rectangle(frame, (x0, y0), (x1, y1), (90, 90, 90), thickness=max(1, round(scale)))
+        cv2.addWeighted(overlay, 0.97, frame, 0.03, 0, frame)
+        cv2.rectangle(frame, (x0, y0), (x1, y1), (150, 150, 150), thickness=max(2, round(1.6 * scale)))
 
         accent_width = max(6, round(8 * scale))
         cv2.rectangle(frame, (x0, y0), (x0 + accent_width, y1), level_color, thickness=-1)
 
         text_x = x0 + accent_width + round(16 * scale)
         line_scale = 0.9 * scale
-        text_thickness = 2 if scale >= 1.6 else 1
+        text_thickness = max(2, min(4, round(1.3 * scale)))
         row_y = y0 + round(44 * scale)
 
         _put_label_outlined(
@@ -278,11 +281,9 @@ class FrameAnnotator:
             line_scale * 0.85,
             text_thickness,
         )
-        chart_top = row_y + round(8 * scale)
+        chart_top = row_y + round(10 * scale)
         chart_width = width - accent_width - round(32 * scale)
-        self._draw_sparkline(
-            frame, text_x, chart_top, chart_width, sparkline_height, density_history, peak_vehicle_count, scale
-        )
+        self._draw_sparkline(frame, text_x, chart_top, chart_width, sparkline_height, density_history, scale)
 
     def _draw_sparkline(
         self,
@@ -292,128 +293,39 @@ class FrameAnnotator:
         width: int,
         height: int,
         history: list[int],
-        peak: int,
         scale: float,
     ) -> None:
-        """Small trend line of recent vehicle density -- normalized to the whole-video peak
-        (not just this window's max) so the line's height stays meaningful relative to how
-        busy the video gets overall, instead of rescaling every frame."""
+        """Small trend line of recent vehicle density. Stretched between this window's own
+        min and max (not a fixed 0 floor, and not the whole-video peak) so real variation
+        stays visible on screen even when the count never drops anywhere near zero -- the
+        "peak" figure printed next to this chart is still the true whole-video peak, this is
+        purely about how the line itself is scaled to fill the chart."""
         if len(history) < 2 or width <= 0 or height <= 0:
             return
-        max_value = max(peak, max(history), 1)
+        low, high = min(history), max(history)
+        if high == low:
+            high = low + 1
         n = len(history)
-        points = [
-            (
-                x0 + round(i / (n - 1) * width),
-                y0 + height - round((value / max_value) * height),
-            )
-            for i, value in enumerate(history)
-        ]
+
+        def _point(i: int, value: int) -> tuple[int, int]:
+            x = x0 + round(i / (n - 1) * width)
+            y = y0 + height - round((value - low) / (high - low) * height)
+            return x, y
+
+        line_points = [_point(i, value) for i, value in enumerate(history)]
+
+        cv2.line(frame, (x0, y0 + height), (x0 + width, y0 + height), _PANEL_MUTED_TEXT, 1, cv2.LINE_AA)
+
+        fill_points = [*line_points, (x0 + width, y0 + height), (x0, y0 + height)]
+        overlay = frame.copy()
+        cv2.fillPoly(overlay, [np.array(fill_points, dtype=np.int32)], _PANEL_TEXT)
+        cv2.addWeighted(overlay, 0.22, frame, 0.78, 0, frame)
+
         cv2.polylines(
             frame,
-            [np.array(points, dtype=np.int32)],
+            [np.array(line_points, dtype=np.int32)],
             isClosed=False,
             color=_PANEL_TEXT,
-            thickness=max(1, round(1.6 * scale)),
+            thickness=max(1, round(1.8 * scale)),
             lineType=cv2.LINE_AA,
         )
-
-    def render_summary_card(
-        self,
-        frame: np.ndarray,
-        metrics: TrafficMetrics,
-        peak_vehicle_count: int,
-    ) -> np.ndarray:
-        """Renders a still, centered end-of-video stats card over a dimmed freeze-frame,
-        meant to be written for the final few seconds of the annotated video as a clean,
-        shareable closing shot -- distinct from the live corner panel so it reads as a
-        deliberate outro, not a continuation of live tracking."""
-        scale = min(_MAX_SCALE, max(_MIN_SCALE, frame.shape[1] / _REFERENCE_WIDTH))
-        dimmed = frame.copy()
-        black = np.zeros_like(frame)
-        cv2.addWeighted(black, 0.55, dimmed, 0.45, 0, dimmed)
-
-        present_classes = [c for c in _CLASS_DISPLAY_ORDER if metrics.vehicles_per_class.get(c)]
-        present_classes += [
-            c for c in metrics.vehicles_per_class if c not in _CLASS_DISPLAY_ORDER and metrics.vehicles_per_class[c]
-        ]
-        breakdown_rows = [
-            (_CLASS_DISPLAY_LABEL.get(c, c.title()), metrics.vehicles_per_class[c]) for c in present_classes
-        ]
-
-        level_color = _CONGESTION_COLORS[metrics.traffic_level]
-        line_gap = round(48 * scale)
-        row_count = 5 + len(breakdown_rows)  # Vehicles, breakdown rows, People, Peak, Traffic, Duration
-        width = round(560 * scale)
-        height = round(90 * scale) + line_gap * row_count
-        x0 = (frame.shape[1] - width) // 2
-        y0 = (frame.shape[0] - height) // 2
-        x1, y1 = x0 + width, y0 + height
-
-        panel = dimmed.copy()
-        cv2.rectangle(panel, (x0, y0), (x1, y1), _PANEL_BG, thickness=-1)
-        cv2.addWeighted(panel, 0.92, dimmed, 0.08, 0, dimmed)
-        cv2.rectangle(dimmed, (x0, y0), (x1, y1), (90, 90, 90), thickness=max(1, round(scale)))
-
-        accent_width = max(6, round(8 * scale))
-        cv2.rectangle(dimmed, (x0, y0), (x0 + accent_width, y1), level_color, thickness=-1)
-
-        text_x = x0 + accent_width + round(20 * scale)
-        text_thickness = 2 if scale >= 1.6 else 1
-        line_scale = 0.85 * scale
-        row_y = y0 + round(52 * scale)
-
-        _put_label_outlined(dimmed, "Session Summary", (text_x, row_y), _PANEL_TEXT, 1.1 * scale, 2)
-
-        row_y += line_gap
-        total_vehicles = sum(metrics.vehicles_per_class.values())
-        _put_label_outlined(
-            dimmed, f"Vehicles  {total_vehicles}", (text_x, row_y), _PANEL_TEXT, line_scale * 1.1, text_thickness
-        )
-        for label, count in breakdown_rows:
-            row_y += line_gap
-            _put_label_outlined(
-                dimmed, f"  {label}  {count}", (text_x, row_y), _PANEL_MUTED_TEXT, line_scale * 0.9, text_thickness
-            )
-
-        row_y += line_gap
-        _put_label_outlined(
-            dimmed,
-            f"People    {metrics.total_pedestrians}",
-            (text_x, row_y),
-            _PANEL_TEXT,
-            line_scale * 1.1,
-            text_thickness,
-        )
-
-        row_y += line_gap
-        _put_label_outlined(
-            dimmed,
-            f"Peak at once  {peak_vehicle_count}",
-            (text_x, row_y),
-            _PANEL_MUTED_TEXT,
-            line_scale,
-            text_thickness,
-        )
-
-        row_y += line_gap
-        _put_label_outlined(
-            dimmed,
-            f"Traffic level  {metrics.traffic_level.value}",
-            (text_x, row_y),
-            level_color,
-            line_scale * 1.15,
-            text_thickness,
-        )
-
-        row_y += line_gap
-        _put_label_outlined(
-            dimmed,
-            f"Duration  {metrics.video_duration_s:.0f}s",
-            (text_x, row_y),
-            _PANEL_MUTED_TEXT,
-            line_scale,
-            text_thickness,
-        )
-
-        return dimmed
