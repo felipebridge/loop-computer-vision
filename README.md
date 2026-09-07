@@ -14,18 +14,9 @@ Real-time vehicle & pedestrian tracking with live traffic congestion classificat
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
 </p>
 
-<table align="center">
-  <tr>
-    <td align="center">
-      <img src="docs/assets/demo.gif" alt="Annotated street video with live vehicle/pedestrian tracking boxes and IDs" width="280"><br>
-      <sub>Live tracking</sub>
-    </td>
-    <td align="center">
-      <img src="docs/assets/demo-videox.gif" alt="Annotated output video with vehicle/pedestrian counts and traffic congestion level" width="280"><br>
-      <sub>Congestion classification</sub>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="Annotated street video with live vehicle/pedestrian tracking boxes and IDs" width="300">
+</p>
 
 ## What it does
 
