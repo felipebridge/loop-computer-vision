@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections import Counter, deque
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,11 +26,6 @@ from traffic_intelligence.visualization.annotator import FrameAnnotator
 
 logger = get_logger("pipeline.runner")
 
-# Recent-trend window for the live density sparkline -- bounded like
-# CongestionClassifier._history, so memory stays flat regardless of video length. 20s
-# comfortably shows the whole trend on a short clip and a meaningful recent window on a long one.
-_SPARKLINE_WINDOW_S = 20.0
-
 
 @dataclass
 class RunResult:
@@ -50,7 +45,6 @@ class PipelineRunner:
         self._congestion_classifier = CongestionClassifier(config.congestion)
         self._annotator = FrameAnnotator()
         self._traffic_level_history: list[CongestionState] = []
-        self._peak_vehicle_count = 0
 
     def run(self, input_path: str | Path, output_dir: str | Path) -> RunResult:
         input_path = Path(input_path)
@@ -67,9 +61,7 @@ class PipelineRunner:
         )
 
         with VideoSource(decode_path, self._config.video.fps_override) as source:
-            fps = source.fps
             frame_diagonal = math.hypot(source.frame_width, source.frame_height)
-            vehicle_count_window: deque[int] = deque(maxlen=max(1, round(fps * _SPARKLINE_WINDOW_S)))
             speed_estimator = (
                 SpeedEstimator(self._config.speed.reference_widths_m, self._config.speed.min_calibration_samples)
                 if self._config.speed.enabled
@@ -119,8 +111,6 @@ class PipelineRunner:
 
                 traffic_level = self._congestion_classifier.update(vehicle_count)
                 self._traffic_level_history.append(traffic_level)
-                vehicle_count_window.append(vehicle_count)
-                self._peak_vehicle_count = max(self._peak_vehicle_count, vehicle_count)
 
                 if video_writer is not None:
                     trails = {d.track_id: accumulator.trail(d.track_id) for d in confirmed}
@@ -131,8 +121,6 @@ class PipelineRunner:
                         counts_by_class,
                         person_count,
                         traffic_level,
-                        list(vehicle_count_window),
-                        self._peak_vehicle_count,
                     )
                     video_writer.write(annotated_frame)
 

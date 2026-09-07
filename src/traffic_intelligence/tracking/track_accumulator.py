@@ -31,6 +31,13 @@ _MIN_BBOX_WIDTH_RATIO_FOR_SPEED = 0.025
 # touches it. Averaging each point with its neighbors first removes that without erasing real
 # motion, which happens over many frames, not one.
 _SMOOTHING_WINDOW = 5
+# A pure "current majority of votes so far" flickers whenever two classes are close (e.g. a
+# vehicle shape the model is genuinely unsure about between "car" and "truck"): one new vote for
+# the trailing class can flip which one is "most common" for a frame or two before the leading
+# class pulls back ahead. Requiring the challenger to lead by at least this fraction of votes
+# seen so far before the displayed class switches turns that into a single, deliberate change
+# once a track's classification genuinely shifts, instead of flip-flopping on a near-tie.
+_CLASS_SWITCH_LEAD_RATIO = 0.15
 
 
 def _percentile(values: list[float], fraction: float) -> float:
@@ -84,6 +91,7 @@ class TrackAccumulator:
         self._frame_counts: dict[int, int] = defaultdict(int)
         self._class_votes: dict[int, Counter[int]] = defaultdict(Counter)
         self._class_names: dict[int, dict[int, str]] = defaultdict(dict)
+        self._displayed_class: dict[int, int] = {}
         self._confidences: dict[int, list[float]] = defaultdict(list)
         self._first_seen: dict[int, tuple[int, float]] = {}
         self._last_seen: dict[int, tuple[int, float]] = {}
@@ -135,13 +143,28 @@ class TrackAccumulator:
         return list(self._trails.get(track_id, ()))
 
     def dominant_class(self, track_id: int) -> tuple[int, str]:
-        """Majority-voted class for a track using votes seen so far (not just at finalize).
+        """Majority-voted class for a track using votes seen so far (not just at finalize),
+        with hysteresis: the displayed class only switches once a challenger leads the
+        currently-displayed class by at least _CLASS_SWITCH_LEAD_RATIO of votes seen so far,
+        not on every new vote that nudges a near-tie the other way.
 
         Lets live rendering show the same flicker-resistant class (e.g. bicycle vs.
-        motorcycle) that finalize() would report, instead of the raw per-frame prediction.
+        motorcycle, or car vs. truck) that finalize() would report, instead of the raw
+        per-frame prediction.
         """
-        class_id, _ = self._class_votes[track_id].most_common(1)[0]
-        return class_id, self._class_names[track_id][class_id]
+        votes = self._class_votes[track_id]
+        leading_class_id, leading_votes = votes.most_common(1)[0]
+
+        displayed_class_id = self._displayed_class.get(track_id)
+        if displayed_class_id is not None and displayed_class_id != leading_class_id:
+            total_votes = sum(votes.values())
+            required_lead = max(1, round(total_votes * _CLASS_SWITCH_LEAD_RATIO))
+            displayed_votes = votes[displayed_class_id]
+            if leading_votes - displayed_votes < required_lead:
+                return displayed_class_id, self._class_names[track_id][displayed_class_id]
+
+        self._displayed_class[track_id] = leading_class_id
+        return leading_class_id, self._class_names[track_id][leading_class_id]
 
     def _too_far_for_speed(self, track_id: int) -> bool:
         if self._frame_width <= 0:

@@ -95,7 +95,7 @@ def _put_label_outlined(
 
 class FrameAnnotator:
     """Renders bounding boxes, per-track trails, and a live summary panel (counts, traffic
-    level, density sparkline)."""
+    level)."""
 
     def __init__(self, trail_length: int = 20) -> None:
         self._trail_length = trail_length
@@ -108,8 +108,6 @@ class FrameAnnotator:
         counts_by_class: Counter[str],
         person_count: int,
         traffic_level: CongestionState,
-        density_history: list[int],
-        peak_vehicle_count: int,
     ) -> np.ndarray:
         scale = min(_MAX_SCALE, max(_MIN_SCALE, frame.shape[1] / _REFERENCE_WIDTH))
         annotated = frame.copy()
@@ -121,9 +119,7 @@ class FrameAnnotator:
                 scale,
                 frame.shape[1],
             )
-        self._draw_summary_panel(
-            annotated, counts_by_class, person_count, traffic_level, density_history, peak_vehicle_count, scale
-        )
+        self._draw_summary_panel(annotated, counts_by_class, person_count, traffic_level, scale)
         return annotated
 
     def _draw_detection(
@@ -209,8 +205,6 @@ class FrameAnnotator:
         counts_by_class: Counter[str],
         person_count: int,
         traffic_level: CongestionState,
-        density_history: list[int],
-        peak_vehicle_count: int,
         scale: float,
     ) -> None:
         level_color = _CONGESTION_COLORS[traffic_level]
@@ -225,10 +219,9 @@ class FrameAnnotator:
 
         margin = round(20 * scale)
         line_gap = round(40 * scale)
-        header_rows = 4  # Vehicles total, People, Traffic level, Density label
-        sparkline_height = round(46 * scale)
+        header_rows = 3  # Vehicles total, People, Traffic level
         width = round(380 * scale)
-        height = round(88 * scale) + line_gap * (header_rows + len(breakdown_rows)) + sparkline_height
+        height = round(88 * scale) + line_gap * (header_rows + len(breakdown_rows))
         x0, y0 = margin, margin
         x1, y1 = x0 + width, y0 + height
 
@@ -272,60 +265,3 @@ class FrameAnnotator:
             text_thickness,
         )
 
-        row_y += line_gap
-        _put_label_outlined(
-            frame,
-            f"Density (peak {peak_vehicle_count})",
-            (text_x, row_y),
-            _PANEL_MUTED_TEXT,
-            line_scale * 0.85,
-            text_thickness,
-        )
-        chart_top = row_y + round(10 * scale)
-        chart_width = width - accent_width - round(32 * scale)
-        self._draw_sparkline(frame, text_x, chart_top, chart_width, sparkline_height, density_history, scale)
-
-    def _draw_sparkline(
-        self,
-        frame: np.ndarray,
-        x0: int,
-        y0: int,
-        width: int,
-        height: int,
-        history: list[int],
-        scale: float,
-    ) -> None:
-        """Small trend line of recent vehicle density. Stretched between this window's own
-        min and max (not a fixed 0 floor, and not the whole-video peak) so real variation
-        stays visible on screen even when the count never drops anywhere near zero -- the
-        "peak" figure printed next to this chart is still the true whole-video peak, this is
-        purely about how the line itself is scaled to fill the chart."""
-        if len(history) < 2 or width <= 0 or height <= 0:
-            return
-        low, high = min(history), max(history)
-        if high == low:
-            high = low + 1
-        n = len(history)
-
-        def _point(i: int, value: int) -> tuple[int, int]:
-            x = x0 + round(i / (n - 1) * width)
-            y = y0 + height - round((value - low) / (high - low) * height)
-            return x, y
-
-        line_points = [_point(i, value) for i, value in enumerate(history)]
-
-        cv2.line(frame, (x0, y0 + height), (x0 + width, y0 + height), _PANEL_MUTED_TEXT, 1, cv2.LINE_AA)
-
-        fill_points = [*line_points, (x0 + width, y0 + height), (x0, y0 + height)]
-        overlay = frame.copy()
-        cv2.fillPoly(overlay, [np.array(fill_points, dtype=np.int32)], _PANEL_TEXT)
-        cv2.addWeighted(overlay, 0.22, frame, 0.78, 0, frame)
-
-        cv2.polylines(
-            frame,
-            [np.array(line_points, dtype=np.int32)],
-            isClosed=False,
-            color=_PANEL_TEXT,
-            thickness=max(1, round(1.8 * scale)),
-            lineType=cv2.LINE_AA,
-        )

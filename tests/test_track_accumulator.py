@@ -45,6 +45,35 @@ def test_dominant_class_resists_bicycle_motorcycle_flicker(detection_factory):
     assert accumulator.dominant_class(1) == (1, "bicycle")
 
 
+def test_dominant_class_holds_displayed_class_until_challenger_leads_by_margin(detection_factory):
+    """A challenger that merely edges ahead in raw vote count (a near-tie) shouldn't flip the
+    displayed class frame-to-frame; it should only switch once it leads by enough votes."""
+    accumulator = TrackAccumulator(min_track_seconds=0.01)
+    frame_index = 0
+
+    for _ in range(6):
+        accumulator.add(detection_factory(track_id=1, frame_index=frame_index, class_name="truck", class_id=7))
+        frame_index += 1
+    assert accumulator.dominant_class(1) == (7, "truck")
+
+    for _ in range(6):
+        accumulator.add(detection_factory(track_id=1, frame_index=frame_index, class_name="car", class_id=2))
+        frame_index += 1
+    # truck=6, car=6: still displaying truck (a tie doesn't dislodge the displayed class).
+    assert accumulator.dominant_class(1) == (7, "truck")
+
+    accumulator.add(detection_factory(track_id=1, frame_index=frame_index, class_name="car", class_id=2))
+    frame_index += 1
+    # truck=6, car=7: car is the raw majority by 1 vote, but that's not enough of a lead yet --
+    # stays on the displayed class instead of flickering to car and possibly back.
+    assert accumulator.dominant_class(1) == (7, "truck")
+
+    accumulator.add(detection_factory(track_id=1, frame_index=frame_index, class_name="car", class_id=2))
+    frame_index += 1
+    # truck=6, car=8: now car's lead clears the required margin, so it switches once, on purpose.
+    assert accumulator.dominant_class(1) == (2, "car")
+
+
 def test_mean_confidence_is_averaged(detection_factory):
     accumulator = TrackAccumulator(min_track_seconds=0.01)
     accumulator.add(detection_factory(track_id=1, frame_index=0, confidence=0.6))

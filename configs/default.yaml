@@ -48,9 +48,18 @@ tracking:
   min_movement_ratio: 0.0
 
 congestion:
+  # Raised from moderate:6/high:14 -- those were never validated against this project's actual
+  # wide-avenue footage. Measured from tracks.csv on this avenue (Av. Figueroa Alcorta, ~6
+  # lanes): simultaneous vehicle count sits at 38-45 for nearly the entire clip (mean ~41), not
+  # a brief spike -- a wide multi-lane avenue simply has more cars in frame at once than a
+  # narrow street even at normal, non-congested flow, since density here isn't normalized by
+  # lane count. moderate:20 keeps a real light-traffic floor (well below this avenue's normal
+  # range) while giving room for busier-than-usual footage below true saturation; high:55 sits
+  # above this avenue's observed peak (45) so HIGH is reserved for saturation beyond what this
+  # normal-flow footage ever reaches, rather than triggering on this avenue's baseline density.
   density_thresholds:
-    moderate: 6
-    high: 14
+    moderate: 20
+    high: 55
   persistence_frames: 15
 
 output:
