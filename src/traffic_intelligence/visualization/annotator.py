@@ -27,7 +27,6 @@ _CONGESTION_COLORS = {
     CongestionState.HIGH: (60, 60, 220),
 }
 
-_PERSON_COLOR = (222, 196, 60)
 _VEHICLE_COLORS = {
     "car": (231, 158, 40),
     "bus": (168, 76, 173),
@@ -59,8 +58,6 @@ _COMPACT_LABEL_MAX_WIDTH_RATIO = 0.065
 
 
 def _color_for_class(class_name: str) -> tuple[int, int, int]:
-    if class_name == "person":
-        return _PERSON_COLOR
     return _VEHICLE_COLORS.get(class_name, _FALLBACK_VEHICLE_COLOR)
 
 
@@ -106,7 +103,6 @@ class FrameAnnotator:
         detections: list[TrackedDetection],
         trails: dict[int, list[tuple[float, float]]],
         counts_by_class: Counter[str],
-        person_count: int,
         traffic_level: CongestionState,
     ) -> np.ndarray:
         scale = min(_MAX_SCALE, max(_MIN_SCALE, frame.shape[1] / _REFERENCE_WIDTH))
@@ -119,7 +115,7 @@ class FrameAnnotator:
                 scale,
                 frame.shape[1],
             )
-        self._draw_summary_panel(annotated, counts_by_class, person_count, traffic_level, scale)
+        self._draw_summary_panel(annotated, counts_by_class, traffic_level, scale)
         return annotated
 
     def _draw_detection(
@@ -203,7 +199,6 @@ class FrameAnnotator:
         self,
         frame: np.ndarray,
         counts_by_class: Counter[str],
-        person_count: int,
         traffic_level: CongestionState,
         scale: float,
     ) -> None:
@@ -219,7 +214,7 @@ class FrameAnnotator:
 
         margin = round(20 * scale)
         line_gap = round(40 * scale)
-        header_rows = 3  # Vehicles total, People, Traffic level
+        header_rows = 2  # Vehicles total, Traffic level
         width = round(380 * scale)
         height = round(88 * scale) + line_gap * (header_rows + len(breakdown_rows))
         x0, y0 = margin, margin
@@ -249,11 +244,6 @@ class FrameAnnotator:
             _put_label_outlined(
                 frame, f"  {label}  {count}", (text_x, row_y), _PANEL_MUTED_TEXT, line_scale * 0.9, text_thickness
             )
-
-        row_y += line_gap
-        _put_label_outlined(
-            frame, f"People    {person_count}", (text_x, row_y), _PANEL_TEXT, line_scale * 1.1, text_thickness
-        )
 
         row_y += line_gap
         _put_label_outlined(

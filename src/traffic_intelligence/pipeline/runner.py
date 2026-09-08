@@ -97,7 +97,6 @@ class PipelineRunner:
                 for detection in tracked:
                     accumulator.add(detection, camera_motion.to_reference_frame(detection.centroid))
 
-                person_class = self._config.detection.person_class
                 confirmed = [d for d in tracked if accumulator.is_confirmed(d.track_id)]
                 display_detections = []
                 for d in confirmed:
@@ -106,7 +105,6 @@ class PipelineRunner:
                         d.model_copy(update={"class_id": class_id, "class_name": class_name})
                     )
                 counts_by_class = Counter(d.class_name for d in display_detections)
-                person_count = counts_by_class.pop(person_class, 0)
                 vehicle_count = sum(counts_by_class.values())
 
                 traffic_level = self._congestion_classifier.update(vehicle_count)
@@ -119,7 +117,6 @@ class PipelineRunner:
                         display_detections,
                         trails,
                         counts_by_class,
-                        person_count,
                         traffic_level,
                     )
                     video_writer.write(annotated_frame)

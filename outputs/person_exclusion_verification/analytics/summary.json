@@ -1,0 +1,15 @@
+{
+  "input_video": "C:\\Users\\felib\\Downloads\\Video Project 3.mp4",
+  "total_vehicles": 69,
+  "total_pedestrians": 0,
+  "vehicles_per_class": {
+    "car": 61,
+    "truck": 3,
+    "motorcycle": 4,
+    "bus": 1
+  },
+  "traffic_level": "MODERATE",
+  "average_vehicle_speed_kmh": 11.792322589045027,
+  "speed_estimated": true,
+  "annotated_video_path": "outputs\\person_exclusion_verification\\videos\\Video Project 3_annotated.mp4"
+}
