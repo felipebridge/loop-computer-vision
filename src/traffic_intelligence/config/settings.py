@@ -55,10 +55,7 @@ class DetectionConfig(BaseModel):
 
     @property
     def classes(self) -> list[str]:
-        """Classes passed to the detector/tracker. Person is intentionally excluded here:
-        this pipeline tracks vehicles only, so people should never get a detection box or
-        tracking ID in the first place, not just be hidden from the rendered output."""
-        return list(self.vehicle_classes)
+        return [*self.vehicle_classes, self.person_class]
 
 
 class TrackingConfig(BaseModel):

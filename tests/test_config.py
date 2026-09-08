@@ -57,9 +57,9 @@ def test_load_config_invalid_yaml_raises(tmp_path):
         load_config(bad_file)
 
 
-def test_detection_classes_excludes_person():
+def test_detection_classes_includes_person():
     config = DetectionConfig(vehicle_classes=["car", "bus"], person_class="person")
-    assert config.classes == ["car", "bus"]
+    assert config.classes == ["car", "bus", "person"]
 
 
 def test_detection_requires_at_least_one_vehicle_class():
