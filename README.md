@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="Loop logo" width="120">
+  <img src="docs/assets/loop-logo.png" alt="Loop logo" width="120">
 </p>
 
 <h1 align="center">Loop Computer Vision</h1>
