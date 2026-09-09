@@ -15,7 +15,7 @@ Real-time vehicle & pedestrian tracking with live traffic congestion classificat
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.webp" alt="Annotated street video with live vehicle/pedestrian tracking boxes and IDs" width="380">
+  <img src="docs/assets/demo.gif" alt="Annotated street video with live vehicle/pedestrian tracking boxes and IDs" width="260">
 </p>
 
 ## What it does
