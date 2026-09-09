@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/loop-logo.png" alt="Loop logo" width="120">
+  <img src="https://cdn.jsdelivr.net/gh/felipebridge/loop-computer-vision@main/docs/assets/loop-logo.png" alt="Loop logo" width="120">
 </p>
 
 <h1 align="center">Loop Computer Vision</h1>
@@ -15,7 +15,7 @@ Real-time vehicle & pedestrian tracking with live traffic congestion classificat
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="Annotated street video with live vehicle/pedestrian tracking boxes and IDs" width="300">
+  <img src="https://cdn.jsdelivr.net/gh/felipebridge/loop-computer-vision@main/docs/assets/demo.gif" alt="Annotated street video with live vehicle/pedestrian tracking boxes and IDs" width="300">
 </p>
 
 ## What it does
