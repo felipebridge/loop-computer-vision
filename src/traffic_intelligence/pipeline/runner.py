@@ -12,6 +12,7 @@ from traffic_intelligence.analytics.metrics import compute_traffic_metrics
 from traffic_intelligence.analytics.motion_compensation import CameraMotionEstimator
 from traffic_intelligence.analytics.occupant_filter import exclude_vehicle_occupants
 from traffic_intelligence.analytics.speed import SpeedEstimator
+from traffic_intelligence.analytics.zone_filter import exclude_zone_detections
 from traffic_intelligence.config.settings import PipelineConfig
 from traffic_intelligence.persistence.video_encoder import finalize_video
 from traffic_intelligence.pipeline.hdr_preprocess import resolve_input_video
@@ -92,6 +93,9 @@ class PipelineRunner:
 
             for frame_index, timestamp, frame in source.frames():
                 tracked = self._tracker.track(frame, frame_index, timestamp)
+                tracked = exclude_zone_detections(
+                    tracked, self._config.detection.excluded_zones, source.frame_width, source.frame_height
+                )
                 tracked = exclude_vehicle_occupants(tracked, self._config.detection.person_class)
                 camera_motion.update(frame, exclude_boxes=[d.bbox for d in tracked])
                 for detection in tracked:

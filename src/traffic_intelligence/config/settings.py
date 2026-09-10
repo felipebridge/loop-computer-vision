@@ -47,10 +47,27 @@ class DetectionConfig(BaseModel):
 
     device: DeviceType = DeviceType.AUTO
 
+    # Fixed regions (fractions of frame width/height, so they survive a resolution change of the
+    # same camera framing) where any detection is dropped regardless of class -- see
+    # analytics.zone_filter. For a known, static false positive tied to one spot in a fixed
+    # camera's frame (a statue, a mannequin) rather than to detector behavior in general.
+    excluded_zones: list[tuple[float, float, float, float]] = Field(default_factory=list)
+
     @model_validator(mode="after")
     def _require_vehicle_classes(self) -> DetectionConfig:
         if not self.vehicle_classes:
             raise ValueError("detection.vehicle_classes must not be empty")
+        return self
+
+    @model_validator(mode="after")
+    def _require_valid_excluded_zones(self) -> DetectionConfig:
+        for zone in self.excluded_zones:
+            x1, y1, x2, y2 = zone
+            if not (0.0 <= x1 < x2 <= 1.0 and 0.0 <= y1 < y2 <= 1.0):
+                raise ValueError(
+                    f"detection.excluded_zones entry {zone} must be (x1, y1, x2, y2) fractions "
+                    "in [0, 1] with x1 < x2 and y1 < y2"
+                )
         return self
 
     @property

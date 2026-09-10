@@ -21,6 +21,13 @@ detection:
   vehicle_classes: ["car", "bus", "truck", "motorcycle", "bicycle"]
   person_class: "person"
   device: "auto"
+  # The park statue on its pedestal (left side of frame, inside the fenced garden bed) reads to
+  # the detector as a person -- higher confidence and less frame-to-frame motion than several
+  # real, legitimately-still pedestrians elsewhere in this same clip (see
+  # analytics.zone_filter), so neither a confidence nor a movement threshold can single it out
+  # without also dropping real people. Measured directly off this camera's framing: the pedestal
+  # sits inside the garden fence, well clear of the path real pedestrians actually walk on.
+  excluded_zones: [[0.21, 0.32, 0.27, 0.47]]
 
 tracking:
   tracker: "botsort"
