@@ -19,6 +19,8 @@ outputs/analytics/*
 !outputs/analytics/.gitkeep
 outputs/tracks/*
 !outputs/tracks/.gitkeep
+outputs/gifs/*
+!outputs/gifs/.gitkeep
 outputs_*/
 
 *.pt
