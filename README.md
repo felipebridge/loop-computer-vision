@@ -15,7 +15,9 @@ Real-time vehicle & pedestrian tracking with live traffic congestion classificat
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="Aerial avenue footage with color-coded vehicle and pedestrian tracking boxes, IDs, and a live counts/congestion panel" width="720">
+  <video src="docs/assets/demo.mp4" width="720" autoplay muted loop playsinline controls>
+    Aerial avenue footage with color-coded vehicle and pedestrian tracking boxes, IDs, and a live counts/congestion panel.
+  </video>
 </p>
 
 ## What it does
