@@ -34,6 +34,16 @@ python -m traffic_intelligence run --input data/raw/avenue.mp4
 python -m traffic_intelligence dashboard
 ```
 
+## Configuration
+
+`configs/default.yaml` ships with general-purpose defaults (model size, detection resolution,
+congestion thresholds) meant to run reasonably on typical hardware, CPU included. Traffic density
+in particular is scene-dependent — a 6-lane avenue and a quiet side street don't hit "busy" at the
+same vehicle count — so after your first run, check `outputs/analytics/tracks.csv` (or
+`summary.json`) and adjust `congestion.density_thresholds` in your own copy of the config (`--config
+path/to/yours.yaml`) so LOW/MODERATE/HIGH line up with what your footage actually shows. Each
+setting in the file is commented with what it trades off.
+
 ## Stack
 
 Python 3.11+ · Ultralytics YOLO (ByteTrack/BoT-SORT) · OpenCV · Pydantic · Pandas ·

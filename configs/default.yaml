@@ -3,21 +3,22 @@ video:
   tone_map_hdr: true
 
 detection:
-  model_path: "yolo11l.pt"
+  # "s" (small) balances accuracy and speed for a general default that runs in reasonable time
+  # on CPU-only machines, not just GPU boxes. Swap to yolo11m/l/x for better accuracy on dense
+  # scenes if you have the compute (GPU strongly recommended above "s" -- see device below).
+  model_path: "yolo11s.pt"
   confidence_threshold: 0.2
   # Raised from 0.5: with many vehicles side-by-side or overlapping in a dense scene, standard
   # NMS at 0.5 was merging/suppressing adjacent vehicle boxes down to whichever pair was most
   # cleanly separated, undercounting how many vehicles show as detected at once.
   iou_threshold: 0.65
-  # Raised from 1280 (see settings.py note). Validated against this project's dense-traffic
-  # footage: at 1280-1600 the far-lane traffic jam (small, distant vehicles) was almost entirely
-  # missed (single-frame test: 30 vehicle boxes at 1280 vs 43 at 2016 on the same frame). 2016
-  # recovered the most detail but repeatedly ran this machine (14GB RAM, shared with a browser,
-  # an IDE, and this CLI itself) out of memory mid-run at yolo11l's activation-memory footprint;
-  # 1536 is a deliberate compromise -- less far-lane recall than 2016 would give, but enough
-  # headroom on this machine to actually finish a full run instead of getting OOM-killed partway
-  # through. Raise it back to 2016 on a machine with more free RAM (or with less else running).
-  imgsz: 1536
+  # Raised from the library default (640, see settings.py note) so small/distant vehicles in a
+  # busy scene are still large enough on the resized frame for the detector to pick up -- at 640,
+  # a far-lane traffic jam can end up almost entirely missed. Cost scales roughly with the square
+  # of this value, so 960 is a middle ground, not a ceiling: raise it toward 1536-2016 for dense,
+  # high-resolution footage if your machine (RAM, and GPU if using one) has headroom, or lower it
+  # for faster iteration on a CPU-only machine.
+  imgsz: 960
   vehicle_classes: ["car", "bus", "truck", "motorcycle", "bicycle"]
   person_class: "person"
   device: "auto"
@@ -48,18 +49,16 @@ tracking:
   min_movement_ratio: 0.0
 
 congestion:
-  # Raised from moderate:6/high:14 -- those were never validated against this project's actual
-  # wide-avenue footage. Measured from tracks.csv on this avenue (Av. Figueroa Alcorta, ~6
-  # lanes): simultaneous vehicle count sits at 38-45 for nearly the entire clip (mean ~41), not
-  # a brief spike -- a wide multi-lane avenue simply has more cars in frame at once than a
-  # narrow street even at normal, non-congested flow, since density here isn't normalized by
-  # lane count. moderate:20 keeps a real light-traffic floor (well below this avenue's normal
-  # range) while giving room for busier-than-usual footage below true saturation; high:55 sits
-  # above this avenue's observed peak (45) so HIGH is reserved for saturation beyond what this
-  # normal-flow footage ever reaches, rather than triggering on this avenue's baseline density.
+  # "How many vehicles visible at once counts as busy" is inherently scene-dependent -- a 6-lane
+  # avenue's normal flow can sit well above what a 1-2 lane street ever reaches, since density
+  # here isn't normalized by lane count or camera distance. These are reasonable starting points
+  # for a moderate multi-lane street/intersection, not a universal calibration: after a run, check
+  # the simultaneous-vehicle-count distribution in outputs/analytics/tracks.csv (or summary.json)
+  # for your own footage and adjust these two numbers so LOW/MODERATE/HIGH actually line up with
+  # what the video shows -- a wide highway and a quiet residential street need different values.
   density_thresholds:
-    moderate: 20
-    high: 55
+    moderate: 8
+    high: 20
   persistence_frames: 15
 
 output:

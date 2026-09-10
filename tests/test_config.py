@@ -37,12 +37,11 @@ def test_detection_config_defaults_imgsz():
 
 
 def test_load_default_config_uses_higher_imgsz():
-    # Higher than the class default (640), but capped below the 2016 that gave the best
-    # far-lane recall in testing -- that setting repeatedly ran a memory-constrained machine
-    # out of RAM mid-run (see configs/default.yaml). 1536 is a deliberate reliability/recall
-    # trade-off, not the ceiling of what this pipeline can do on more capable hardware.
+    # Higher than the class default (640) so small/distant vehicles in a busy scene are still
+    # detectable, while staying a middle ground usable on CPU-only hardware (see
+    # configs/default.yaml) rather than the higher end this pipeline supports.
     config = load_config("configs/default.yaml")
-    assert config.detection.imgsz == 1536
+    assert config.detection.imgsz == 960
 
 
 def test_load_config_missing_file_raises():
