@@ -15,7 +15,7 @@ Real-time vehicle & pedestrian tracking with live traffic congestion classificat
 </p>
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/felipebridge/loop-computer-vision@97dc46b/docs/assets/demo.gif" alt="Aerial avenue footage with color-coded vehicle and pedestrian tracking boxes, IDs, and a live counts/congestion panel" width="480">
+  <img src="docs/assets/demo.gif" alt="Aerial avenue footage with color-coded vehicle and pedestrian tracking boxes, IDs, and a live counts/congestion panel" width="720">
 </p>
 <p align="center">
   <sub>Cars, buses, motorcycles, bicycles, and pedestrians each get their own color, ID, and trail, with a live counts/congestion panel overlaid.</sub>
