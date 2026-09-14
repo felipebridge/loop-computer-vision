@@ -47,6 +47,11 @@ class VideoSource:
                 f"({self.frame_width}x{self.frame_height})"
             )
 
+        # Container-reported estimate, not authoritative: some codecs/containers report 0 or a
+        # count that doesn't match what decoding actually yields. Callers use it as a progress-bar
+        # hint, not a value to rely on for correctness.
+        self.frame_count = int(self._capture.get(cv2.CAP_PROP_FRAME_COUNT))
+
     def frames(self) -> Iterator[tuple[int, float, np.ndarray]]:
         frame_index = 0
         while True:

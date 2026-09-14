@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
+from tqdm import tqdm
 
 from traffic_intelligence.analytics.congestion import CongestionClassifier
 from traffic_intelligence.analytics.metrics import compute_traffic_metrics
@@ -90,7 +91,13 @@ class PipelineRunner:
                     (source.frame_width, source.frame_height),
                 )
 
-            for frame_index, timestamp, frame in source.frames():
+            progress = tqdm(
+                source.frames(),
+                total=source.frame_count if source.frame_count > 0 else None,
+                desc=input_path.name,
+                unit="frame",
+            )
+            for frame_index, timestamp, frame in progress:
                 tracked = self._tracker.track(frame, frame_index, timestamp)
                 tracked = exclude_vehicle_occupants(tracked, self._config.detection.person_class)
                 camera_motion.update(frame, exclude_boxes=[d.bbox for d in tracked])
