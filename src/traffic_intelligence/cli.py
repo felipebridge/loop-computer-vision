@@ -33,7 +33,8 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.set_defaults(handler=_run_command)
 
     analyze_parser = subparsers.add_parser(
-        "analyze", help="Recompute a summary from a previously exported tracks.csv"
+        "analyze",
+        help="Recompute counts, activity span and speed stats from a previously exported tracks.csv",
     )
     analyze_parser.add_argument("--input", required=True, help="Path to an exported tracks.csv")
     analyze_parser.set_defaults(handler=_analyze_command)
@@ -124,6 +125,23 @@ def _analyze_command(args: argparse.Namespace) -> int:
     print("Vehicles per class:")
     for class_name, count in vehicles["class_name"].value_counts().items():
         print(f"  {class_name}: {count}")
+
+    # Each track row records when it was first and last seen, so the gap between the
+    # earliest and latest of those timestamps is the window of the video that actually
+    # contained tracked traffic. It is recomputable from the export alone, unlike the
+    # congestion level, which needs the per-frame densities only `run` observes.
+    activity_span_s = float(frame["last_timestamp"].max() - frame["first_timestamp"].min())
+    print(f"Activity span: {activity_span_s:.1f} s (first to last detection)")
+
+    estimated = vehicles[vehicles["speed_estimated"].astype(bool)]
+    speeds = estimated["avg_speed_kmh"].dropna()
+    if speeds.empty:
+        print("Average vehicle speed: n/a (not enough vehicles seen yet to calibrate)")
+    else:
+        print(f"Average vehicle speed: {speeds.mean():.1f} km/h (est.)")
+        fastest = estimated["max_speed_kmh"].dropna()
+        if not fastest.empty:
+            print(f"Fastest vehicle:       {fastest.max():.1f} km/h (est.)")
 
     return 0
 
