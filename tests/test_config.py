@@ -90,3 +90,9 @@ def test_appearance_reid_requires_botsort_tracker():
 def test_appearance_reid_allowed_with_botsort_tracker():
     config = TrackingConfig(tracker="botsort", appearance_reid_enabled=True)
     assert config.appearance_reid_enabled is True
+
+
+def test_detection_config_accepts_mps_device():
+    config = DetectionConfig(device="mps")
+    assert config.device.value == "mps"
+

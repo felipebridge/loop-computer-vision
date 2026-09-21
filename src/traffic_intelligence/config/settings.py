@@ -21,6 +21,7 @@ class DeviceType(StrEnum):
     AUTO = "auto"
     CPU = "cpu"
     CUDA = "cuda"
+    MPS = "mps"
 
 
 class VideoConfig(BaseModel):
