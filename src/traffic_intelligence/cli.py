@@ -13,6 +13,18 @@ logger = get_logger("cli")
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Columns `analyze` reads from a tracks.csv export. Checked up front so that pointing
+# the subcommand at an unrelated CSV fails with a clear message instead of a KeyError
+# traceback deep inside pandas indexing.
+_ANALYZE_REQUIRED_COLUMNS = (
+    "class_name",
+    "first_timestamp",
+    "last_timestamp",
+    "avg_speed_kmh",
+    "max_speed_kmh",
+    "speed_estimated",
+)
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -113,9 +125,24 @@ def _analyze_command(args: argparse.Namespace) -> int:
         logger.error("tracks.csv not found: %s", input_path)
         return 1
 
-    frame = pd.read_csv(input_path)
+    try:
+        # utf-8-sig also tolerates a BOM, which CSVs round-tripped through Excel pick up.
+        frame = pd.read_csv(input_path, encoding="utf-8-sig")
+    except (pd.errors.ParserError, UnicodeDecodeError) as exc:
+        logger.error("Could not read %s as CSV: %s", input_path, exc)
+        return 1
     if frame.empty:
         logger.error("No track data found in %s", input_path)
+        return 1
+
+    missing_columns = [col for col in _ANALYZE_REQUIRED_COLUMNS if col not in frame.columns]
+    if missing_columns:
+        logger.error(
+            "%s is missing expected column(s): %s. It does not look like a tracks.csv "
+            "exported by this tool; run `analyze` on outputs/tracks/tracks.csv.",
+            input_path,
+            ", ".join(missing_columns),
+        )
         return 1
 
     vehicles = frame[frame["class_name"] != "person"]
