@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from traffic_intelligence.config.settings import ConfigError, load_config
@@ -14,12 +15,24 @@ logger = get_logger("cli")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _package_version() -> str:
+    try:
+        return version("loop-computer-vision")
+    except PackageNotFoundError:
+        return "unknown"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="traffic_intelligence",
         description="Count vehicles and people in traffic video and classify the congestion level.",
     )
     parser.add_argument("--log-level", default="INFO", help="Logging level (default: INFO)")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_package_version()}",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run the full pipeline on a video")
