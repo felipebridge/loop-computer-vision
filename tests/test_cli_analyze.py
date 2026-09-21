@@ -91,6 +91,15 @@ def test_analyze_rejects_header_only_csv(tmp_path: Path):
     assert main(["analyze", "--input", str(path)]) == 1
 
 
+def test_analyze_rejects_zero_byte_file(tmp_path: Path):
+    # A 0-byte file (failed export, accidental `touch`) makes read_csv raise
+    # EmptyDataError, a sibling of ParserError rather than a subclass of it.
+    path = tmp_path / "tracks.csv"
+    path.write_bytes(b"")
+
+    assert main(["analyze", "--input", str(path)]) == 1
+
+
 def test_analyze_rejects_non_csv_file(tmp_path: Path):
     path = tmp_path / "binary.bin"
     path.write_bytes(bytes(range(256)))

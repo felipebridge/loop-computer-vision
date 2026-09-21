@@ -127,8 +127,11 @@ def _analyze_command(args: argparse.Namespace) -> int:
 
     try:
         # utf-8-sig also tolerates a BOM, which CSVs round-tripped through Excel pick up.
+        # EmptyDataError is the truly-empty (0-byte) case, e.g. an export that died
+        # mid-write: it is a sibling of ParserError (both subclass ValueError), not a
+        # subclass of it, so it needs its own spot in the tuple.
         frame = pd.read_csv(input_path, encoding="utf-8-sig")
-    except (pd.errors.ParserError, UnicodeDecodeError) as exc:
+    except (pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError) as exc:
         logger.error("Could not read %s as CSV: %s", input_path, exc)
         return 1
     if frame.empty:
