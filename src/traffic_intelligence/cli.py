@@ -14,6 +14,18 @@ logger = get_logger("cli")
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Columns `analyze` reads from a tracks.csv export. Checked up front so that pointing
+# the subcommand at an unrelated CSV fails with a clear message instead of a KeyError
+# traceback deep inside pandas indexing.
+_ANALYZE_REQUIRED_COLUMNS = (
+    "class_name",
+    "first_timestamp",
+    "last_timestamp",
+    "avg_speed_kmh",
+    "max_speed_kmh",
+    "speed_estimated",
+)
+
 
 def _package_version() -> str:
     try:
@@ -46,7 +58,8 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.set_defaults(handler=_run_command)
 
     analyze_parser = subparsers.add_parser(
-        "analyze", help="Recompute a summary from a previously exported tracks.csv"
+        "analyze",
+        help="Recompute counts, activity span and speed stats from a previously exported tracks.csv",
     )
     analyze_parser.add_argument("--input", required=True, help="Path to an exported tracks.csv")
     analyze_parser.set_defaults(handler=_analyze_command)
@@ -125,9 +138,27 @@ def _analyze_command(args: argparse.Namespace) -> int:
         logger.error("tracks.csv not found: %s", input_path)
         return 1
 
-    frame = pd.read_csv(input_path)
+    try:
+        # utf-8-sig also tolerates a BOM, which CSVs round-tripped through Excel pick up.
+        # EmptyDataError is the truly-empty (0-byte) case, e.g. an export that died
+        # mid-write: it is a sibling of ParserError (both subclass ValueError), not a
+        # subclass of it, so it needs its own spot in the tuple.
+        frame = pd.read_csv(input_path, encoding="utf-8-sig")
+    except (pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError) as exc:
+        logger.error("Could not read %s as CSV: %s", input_path, exc)
+        return 1
     if frame.empty:
         logger.error("No track data found in %s", input_path)
+        return 1
+
+    missing_columns = [col for col in _ANALYZE_REQUIRED_COLUMNS if col not in frame.columns]
+    if missing_columns:
+        logger.error(
+            "%s is missing expected column(s): %s. It does not look like a tracks.csv "
+            "exported by this tool; run `analyze` on outputs/tracks/tracks.csv.",
+            input_path,
+            ", ".join(missing_columns),
+        )
         return 1
 
     vehicles = frame[frame["class_name"] != "person"]
@@ -137,6 +168,23 @@ def _analyze_command(args: argparse.Namespace) -> int:
     print("Vehicles per class:")
     for class_name, count in vehicles["class_name"].value_counts().items():
         print(f"  {class_name}: {count}")
+
+    # Each track row records when it was first and last seen, so the gap between the
+    # earliest and latest of those timestamps is the window of the video that actually
+    # contained tracked traffic. It is recomputable from the export alone, unlike the
+    # congestion level, which needs the per-frame densities only `run` observes.
+    activity_span_s = float(frame["last_timestamp"].max() - frame["first_timestamp"].min())
+    print(f"Activity span: {activity_span_s:.1f} s (first to last detection)")
+
+    estimated = vehicles[vehicles["speed_estimated"].astype(bool)]
+    speeds = estimated["avg_speed_kmh"].dropna()
+    if speeds.empty:
+        print("Average vehicle speed: n/a (not enough vehicles seen yet to calibrate)")
+    else:
+        print(f"Average vehicle speed: {speeds.mean():.1f} km/h (est.)")
+        fastest = estimated["max_speed_kmh"].dropna()
+        if not fastest.empty:
+            print(f"Fastest vehicle:       {fastest.max():.1f} km/h (est.)")
 
     return 0
 
