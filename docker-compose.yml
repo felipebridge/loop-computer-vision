@@ -1,5 +1,5 @@
 services:
-  traffic-intelligence:
+  loop-computer-vision:
     build: .
     volumes:
       - ./data:/app/data

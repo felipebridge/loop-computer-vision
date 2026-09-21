@@ -1,5 +1,5 @@
 [project]
-name = "traffic-intelligence"
+name = "loop-computer-vision"
 version = "0.1.0"
 description = "Computer vision pipeline that counts vehicles and pedestrians and classifies traffic congestion from video."
 readme = "README.md"
@@ -27,7 +27,7 @@ dev = [
 ]
 
 [project.scripts]
-traffic-intelligence = "traffic_intelligence.cli:main"
+loop-computer-vision = "traffic_intelligence.cli:main"
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
