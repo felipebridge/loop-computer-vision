@@ -34,6 +34,18 @@ python -m traffic_intelligence run --input data/raw/avenue.mp4
 python -m traffic_intelligence dashboard
 ```
 
+## CLI
+
+| Subcommand | What it does |
+| --- | --- |
+| `run` | Full pipeline over a video: tracking, counting, congestion level, annotated video, CSV/JSON exports. |
+| `analyze` | Recomputes counts, tracked-activity span and speed statistics from an exported `tracks.csv`, without re-running the model. |
+| `dashboard` | Launches the Streamlit dashboard over the outputs. |
+
+```bash
+python -m traffic_intelligence analyze --input outputs/tracks/tracks.csv
+```
+
 ## Configuration
 
 `configs/default.yaml` ships with general-purpose defaults (model size, detection resolution,
