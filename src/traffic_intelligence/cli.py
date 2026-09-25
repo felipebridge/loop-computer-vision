@@ -29,7 +29,7 @@ _ANALYZE_REQUIRED_COLUMNS = (
 
 def _package_version() -> str:
     try:
-        return version("loop-computer-vision")
+        return version("traffic-object-tracking")
     except PackageNotFoundError:
         return "unknown"
 

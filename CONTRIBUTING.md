@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in Loop Computer Vision. The project is under active
+Thanks for your interest in Traffic Object Tracking. The project is under active
 development — issues, ideas, and pull requests are welcome.
 
 ## Getting started

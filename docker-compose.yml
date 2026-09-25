@@ -1,5 +1,5 @@
 services:
-  loop-computer-vision:
+  traffic-object-tracking:
     build: .
     volumes:
       - ./data:/app/data
